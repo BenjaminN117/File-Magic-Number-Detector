@@ -1,0 +1,1 @@
+# MacOS File Magic Number Detection
