@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -9,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"golang.org/x/exp/slices"
 )
 
-// Files to be ignored for checks, best to add system files, etc, etc
+// Files to be ignored, default is systems files.
 var ignoredFiles = []string{
 	".DS_Store",
 	"desktop.ini",
@@ -27,19 +31,23 @@ var (
 
 var traversedFiles = []string{}
 
-func logger_init() {
-	file, err := os.OpenFile("logs.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+func logger_init(loggerFilepath string) {
+	// Logging setup
+	dt := time.Now()
+	loggerFilename := fmt.Sprintf("%s/File_Detector_%s.log", loggerFilepath, dt.Format("02-01-2006"))
+
+	file, err := os.OpenFile(loggerFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	InfoLogger = log.New(file, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-	WarningLogger = log.New(file, "WARNING: ", log.Ldate|log.Ltime|log.Lshortfile)
-	ErrorLogger = log.New(file, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	CriticalLogger = log.New(file, "CRITICAL:", log.Ldate|log.Ltime|log.Lshortfile)
+	InfoLogger = log.New(file, "INFO: ", log.Ldate|log.Ltime)
+	WarningLogger = log.New(file, "WARNING: ", log.Ldate|log.Ltime)
+	ErrorLogger = log.New(file, "ERROR: ", log.Ldate|log.Ltime)
+	CriticalLogger = log.New(file, "CRITICAL:", log.Ldate|log.Ltime)
 }
 
-func printFile(path string, info os.FileInfo, err error) error {
+func walk_error_handle(path string, info os.FileInfo, err error) error {
 	// Error handling for directory traverse
 	if err != nil {
 		log.Print(err)
@@ -50,7 +58,7 @@ func printFile(path string, info os.FileInfo, err error) error {
 }
 
 func directory_checker(fileName string) bool {
-
+	// Checks whether the input is a directory or a file
 	fi, err := os.Lstat(fileName)
 	if err != nil {
 		log.Fatal(err)
@@ -66,6 +74,7 @@ func directory_checker(fileName string) bool {
 }
 
 func removeValueFromSlice(slice []string, value string) []string {
+	// Removes the given value from a slice
 	index := -1
 	for i, v := range slice {
 		if v == value {
@@ -83,12 +92,10 @@ func removeValueFromSlice(slice []string, value string) []string {
 }
 
 func directory_traverse(directoryPath string) []string {
-	/*
-		Traverses the directory and returns a list of files
-	*/
+	// Traverses the directory and returns a list of files
 
 	// walk the directory
-	err := filepath.Walk(directoryPath, printFile)
+	err := filepath.Walk(directoryPath, walk_error_handle)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -99,7 +106,6 @@ func directory_traverse(directoryPath string) []string {
 
 	for _, value := range copyTraversedFiles {
 		// Removing directories
-		fmt.Println(value)
 		rawFileName := strings.SplitAfter(value, "/")
 		if directory_checker(value) == true {
 			traversedFiles = removeValueFromSlice(traversedFiles, value)
@@ -110,21 +116,30 @@ func directory_traverse(directoryPath string) []string {
 				traversedFiles = removeValueFromSlice(traversedFiles, value)
 			}
 		}
-
 	}
-
 	return traversedFiles
 }
 
 func magic_number(targetFile string) ([]string, bool) {
 
-	// Blank slice parsed when an error occurs
-	var errSlice = []string{}
+	// Check the size of the file
+	fi, fileSizeError := os.Stat(targetFile)
+	if fileSizeError != nil {
+		CriticalLogger.Printf("%s - Error reading file size: %s", targetFile, fileSizeError)
+		return []string{}, false
+	}
+
+	if fi.Size() == 0 {
+		WarningLogger.Printf("Empty File - No file true type can be determined - %s", targetFile)
+		return []string{}, false
+	}
+
+	// Open the file
 
 	file, err := os.Open(targetFile)
 	if err != nil {
-		fmt.Println("Error opening the file:", err)
-		return errSlice, false
+		CriticalLogger.Printf("%s - Error opening file: %s", targetFile, err)
+		return []string{}, false
 	}
 	defer file.Close()
 
@@ -132,74 +147,61 @@ func magic_number(targetFile string) ([]string, bool) {
 	buffer := make([]byte, 512)
 	_, err = io.ReadFull(file, buffer)
 	if err != nil && err != io.EOF {
-		fmt.Println("Error reading the file:", err)
-		return errSlice, false
+		CriticalLogger.Printf("%s - Error reading file: %s", targetFile, err)
+		return []string{}, false
 	}
+
 	mimeType := http.DetectContentType(buffer)
 
 	// Get the file extension from the MIME type
 	ext, err := mime.ExtensionsByType(mimeType)
 	if err != nil || len(ext) == 0 {
-		fmt.Println("File extension not found. No data in the file")
-		return errSlice, false
+		WarningLogger.Printf("%s - Error no data in file: %s", targetFile, err)
+		return []string{}, false
 	}
-
 	return ext, true
 }
 
-func file_checker() string {
-
-	// for files that do not have a file extentsion. Just do the magic number calculation and add it to a log file. Send a notification if a new entry in the log is created
-	// for files with an extension do the comparison and send a notification if they differ
-	// for files that have an extension that is unknown to the map, log it and send an information notification
+func file_checker() {
 
 	for _, value := range traversedFiles {
 		rawFileName := strings.SplitAfter(value, "/")
 		fileExtension := strings.SplitAfter(rawFileName[len(rawFileName)-1], ".")
+
 		// Checks if a file extension is present
 		if len(fileExtension) <= 1 {
 
-			// Do the magic number check and log it is an estimated file type
-			magicFileExtension, _ := magic_number(value)
-			WarningLogger.Printf("File with no extension: %s --- Possible file contents: %s", value, magicFileExtension)
+			magicFileExtension, err := magic_number(value)
+			if err != false {
+				WarningLogger.Printf("File with no extension: %s --- Possible file contents: %s", value, magicFileExtension)
+			}
+
 		} else {
 
-			// Do the magic number check and compare it to the file extension value.
-			// If they are the same, log it as info
-			// If they are different, log it is critical and throw a notfication
-			// If the file extension or the magic number are not included in the map, log it as critical and throw a warning notification
-			// If the file has no data throw it as a warning
-			magicFileExtension, _ := magic_number(value)
-			for _, found := range magicFileExtension {
-				if found != value {
-					CriticalLogger.Printf("Mismatech Found: %s --- True File Extension: %s", value, magicFileExtension)
-				} else {
-					fmt.Println("other")
+			magicFileExtension, err := magic_number(value)
+			if err != false {
+				if slices.Contains(magicFileExtension, fileExtension[len(fileExtension)-1:][0]) == false {
+					CriticalLogger.Printf("Mismatch Found: %s --- True File Extension: %s", value, magicFileExtension)
 				}
 			}
 		}
 	}
-
-	return "null"
 }
 
 func main() {
 
+	// TODO fix the arg parse so you can parse more than one file name to be ignored
+	// TODO fix the default search folder
+
 	// Args config
 
-	// filepath := flag.String("filepath", "~/Downloads", "Please enter a target directory")
-	// flag.Parse()
-	// fmt.Println(*filepath)
+	searchFilepath := flag.String("filepath", "./", "Please enter a target directory")
+	loggerFilepath := flag.String("logger", "./", "Please specify the log file location")
+	flag.Parse()
 
-	logger_init()
+	logger_init(*loggerFilepath)
 
-	otherslice := (directory_traverse("/users/benjamin/Downloads/TESTFOLDER"))
-	fmt.Println("--- UPDATED ---")
-	for _, value := range otherslice {
-		fmt.Println(value)
-	}
-
-	fmt.Println("--- FILE CHECKER ---")
+	directory_traverse(*searchFilepath)
 
 	file_checker()
 
