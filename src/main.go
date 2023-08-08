@@ -15,7 +15,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-// Files to be ignored for checks, best to add system files, etc, etc
+// Files to be ignored, default is systems files.
 var ignoredFiles = []string{
 	".DS_Store",
 	"desktop.ini",
@@ -31,14 +31,10 @@ var (
 
 var traversedFiles = []string{}
 
-func logger_init() {
+func logger_init(loggerFilepath string) {
+	// Logging setup
 	dt := time.Now()
-	loggerFilename := fmt.Sprintf("File_M_N_Detector-%s", dt.Format("02/01/2006"))
-	if _, err := os.Stat(loggerFilename); err == nil {
-		fmt.Printf("Does not exist")
-		os.Exit(0)
-
-	}
+	loggerFilename := fmt.Sprintf("%s/File_Detector_%s.log", loggerFilepath, dt.Format("02-01-2006"))
 
 	file, err := os.OpenFile(loggerFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
@@ -51,7 +47,7 @@ func logger_init() {
 	CriticalLogger = log.New(file, "CRITICAL:", log.Ldate|log.Ltime)
 }
 
-func printFile(path string, info os.FileInfo, err error) error {
+func walk_error_handle(path string, info os.FileInfo, err error) error {
 	// Error handling for directory traverse
 	if err != nil {
 		log.Print(err)
@@ -62,7 +58,7 @@ func printFile(path string, info os.FileInfo, err error) error {
 }
 
 func directory_checker(fileName string) bool {
-
+	// Checks whether the input is a directory or a file
 	fi, err := os.Lstat(fileName)
 	if err != nil {
 		log.Fatal(err)
@@ -78,6 +74,7 @@ func directory_checker(fileName string) bool {
 }
 
 func removeValueFromSlice(slice []string, value string) []string {
+	// Removes the given value from a slice
 	index := -1
 	for i, v := range slice {
 		if v == value {
@@ -95,12 +92,10 @@ func removeValueFromSlice(slice []string, value string) []string {
 }
 
 func directory_traverse(directoryPath string) []string {
-	/*
-		Traverses the directory and returns a list of files
-	*/
+	// Traverses the directory and returns a list of files
 
 	// walk the directory
-	err := filepath.Walk(directoryPath, printFile)
+	err := filepath.Walk(directoryPath, walk_error_handle)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -195,15 +190,18 @@ func file_checker() {
 
 func main() {
 
+	// TODO fix the arg parse so you can parse more than one file name to be ignored
+	// TODO fix the default search folder
+
 	// Args config
 
-	filepath := flag.String("filepath", "~/Downloads", "Please enter a target directory")
+	searchFilepath := flag.String("filepath", "./", "Please enter a target directory")
+	loggerFilepath := flag.String("logger", "./", "Please specify the log file location")
 	flag.Parse()
-	fmt.Println(*filepath)
 
-	logger_init()
+	logger_init(*loggerFilepath)
 
-	directory_traverse(*filepath)
+	directory_traverse(*searchFilepath)
 
 	file_checker()
 
