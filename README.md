@@ -18,3 +18,15 @@ go run src/main.go
   -logger string
         Please specify the log file location (default "./")
 ```
+
+
+# Dependancies
+
+github.com/gen2brain/beeep
+github.com/go-toast/toast
+github.com/godbus/dbus/v5
+github.com/nu7hatch/gouuid
+github.com/tadvi/systray
+
+golang.org/x/exp
+golang.org/x/sys
