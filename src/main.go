@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gen2brain/beeep"
 	"golang.org/x/exp/slices"
 )
 
@@ -182,6 +183,12 @@ func file_checker() {
 			if err != false {
 				if slices.Contains(magicFileExtension, fileExtension[len(fileExtension)-1:][0]) == false {
 					CriticalLogger.Printf("Mismatch Found: %s --- True File Extension: %s", value, magicFileExtension)
+					err := beeep.Alert("Magic Number Detector", fmt.Sprintf("Mismatch Found: %s --- True File Extension: %s", value, magicFileExtension), "")
+					if err != nil {
+						panic(err)
+					}
+					// Waits for the notification to be dismissed so it doesn't spam when multiple files are detected
+					time.Sleep(3 * time.Second)
 				}
 			}
 		}
@@ -189,11 +196,9 @@ func file_checker() {
 }
 
 func main() {
-
-	// TODO fix the arg parse so you can parse more than one file name to be ignored
-	// TODO fix the default search folder
-
 	// Args config
+
+	// Defaults to current directory if no value is entered
 
 	searchFilepath := flag.String("filepath", "./", "Please enter a target directory")
 	loggerFilepath := flag.String("logger", "./", "Please specify the log file location")
